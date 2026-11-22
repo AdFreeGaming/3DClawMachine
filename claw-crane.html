@@ -1,0 +1,1487 @@
+<meta charset="utf-8">
+<title>Claw Crane</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="lib/fonts/arcade.css">
+<style>
+/* Layout: full-bleed 3D arcade floor; stats float top corners, the control deck (stick + drop button) rides the bottom edge like the cabinet's own panel */
+:root {
+  --night: #140d24;
+  --panel: rgba(23, 15, 44, 0.78);
+  --line: rgba(244, 238, 252, 0.12);
+  --ink: #f4eefc;
+  --muted: #b9acd8;
+  --cabinet: #179c4a;
+  --marquee: #ffd600;
+  --deck: #1e2a78;
+  --button: #ff1744;
+  --button-deep: #a3001f;
+  --display: "Bungee", Impact, "Arial Black", system-ui, sans-serif;
+  --body: "Barlow Semi Condensed", "Arial Narrow", system-ui, sans-serif;
+  color-scheme: dark;
+}
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body { background: var(--night); color: var(--ink); font-family: var(--body); font-size: 15px; overflow: hidden; }
+#stage { position: fixed; inset: 0; }
+#stage canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+
+.hud {
+  position: fixed; top: calc(env(safe-area-inset-top, 0px) + 12px); left: 0; right: 0;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; flex-wrap: wrap;
+  pointer-events: none;
+}
+.card {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  padding: 10px 14px; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  pointer-events: auto; min-width: 0;
+}
+.brand { font-family: var(--display); font-size: 20px; line-height: 1; color: var(--marquee); letter-spacing: 0.02em; }
+.stats { display: flex; gap: 18px; margin-top: 8px; }
+.stat { display: grid; gap: 1px; }
+.stat b { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.05; }
+.label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.09em; color: var(--muted); font-weight: 600; }
+.haul { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; max-width: 220px; }
+.haul:empty { display: none; }
+.haul i { width: 14px; height: 14px; border-radius: 50%; display: block; box-shadow: inset 0 -2px 0 rgba(0,0,0,0.25); }
+
+.tools { display: grid; gap: 8px; width: 210px; }
+.grip-row { display: flex; justify-content: space-between; align-items: baseline; }
+.grip-row output { font-weight: 700; font-size: 14px; }
+input[type=range] { width: 100%; accent-color: var(--marquee); }
+.btns { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+.views { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+.btn[aria-pressed="true"] { background: var(--deck); border-color: var(--marquee); }
+#sound[aria-pressed] { background: rgba(244, 238, 252, 0.08); border-color: var(--line); }
+.btn {
+  flex: 1; font: 600 13px/1 var(--body); letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--ink); background: rgba(244, 238, 252, 0.08); border: 1px solid var(--line);
+  border-radius: 7px; padding: 8px 6px; cursor: pointer;
+}
+.btn:hover { background: rgba(244, 238, 252, 0.16); }
+.btn:focus-visible, .pad button:focus-visible, .drop:focus-visible { outline: 2px solid var(--marquee); outline-offset: 2px; }
+
+.deck {
+  position: fixed; left: 0; right: 0; bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; pointer-events: none;
+}
+.pad {
+  display: grid; grid-template-columns: repeat(3, 48px); grid-template-rows: repeat(3, 48px); gap: 4px;
+  pointer-events: auto; touch-action: none;
+}
+.pad button {
+  border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+  font-size: 18px; cursor: pointer; user-select: none; -webkit-user-select: none; touch-action: none;
+}
+.pad button.on { background: var(--deck); border-color: var(--marquee); }
+.pad .up { grid-area: 1 / 2; } .pad .left { grid-area: 2 / 1; } .pad .right { grid-area: 2 / 3; } .pad .down { grid-area: 3 / 2; }
+.status {
+  flex: 1; min-width: 0; text-align: center; align-self: center; font-weight: 600; font-size: 15px;
+  color: var(--muted); text-wrap: balance;
+}
+.status strong { color: var(--ink); }
+.drop {
+  pointer-events: auto; width: 104px; height: 104px; border-radius: 50%; cursor: pointer;
+  font: 400 18px/1 var(--display); color: #fff; letter-spacing: 0.03em;
+  background: radial-gradient(circle at 35% 30%, #ff6a85, var(--button) 45%, var(--button-deep));
+  border: 4px solid var(--deck); box-shadow: 0 6px 0 var(--button-deep), 0 10px 24px rgba(0,0,0,0.45);
+  transition: transform 0.08s, box-shadow 0.08s;
+}
+.drop:not([aria-disabled="true"]):active, .drop.pressed { transform: translateY(5px); box-shadow: 0 1px 0 var(--button-deep), 0 4px 12px rgba(0,0,0,0.45); }
+.drop[aria-disabled="true"] { filter: grayscale(0.7) brightness(0.7); cursor: not-allowed; }
+
+.toast {
+  position: fixed; left: 50%; top: calc(env(safe-area-inset-top, 0px) + 96px); transform: translate(-50%, -8px);
+  font: 400 22px/1.1 var(--display); color: var(--marquee); text-align: center; padding: 12px 20px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px; opacity: 0; pointer-events: none;
+  transition: opacity 0.25s, transform 0.25s; max-width: calc(100% - 32px);
+}
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+.toast small { display: block; font: 600 14px/1.3 var(--body); color: var(--ink); margin-top: 4px; letter-spacing: 0.02em; }
+
+.loading { position: fixed; inset: 0; display: grid; place-items: center; font: 400 18px var(--display); color: var(--muted); }
+.keys { font-size: 12px; color: var(--muted); }
+kbd { font: 600 11px var(--body); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 1px 5px; color: var(--ink); }
+
+@media (max-width: 560px) {
+  .tools { width: 190px; }
+  .btn { font-size: 11px; letter-spacing: 0.02em; }
+  .pad { grid-template-columns: repeat(3, 44px); grid-template-rows: repeat(3, 44px); }
+  .drop { width: 88px; height: 88px; font-size: 15px; }
+  .status { font-size: 13px; }
+  .keys { display: none; }
+  .toast { top: calc(env(safe-area-inset-top, 0px) + 150px); }
+}
+@media (prefers-reduced-motion: reduce) { .toast, .drop { transition: none; } }
+</style>
+
+<div id="stage"></div>
+<div class="loading" id="loading">Warming up the crane…</div>
+
+<div class="hud">
+  <div class="card">
+    <div class="brand">Claw Crane</div>
+    <div class="stats">
+      <div class="stat"><span class="label">Credits</span><b id="credits">5</b></div>
+      <div class="stat"><span class="label">Won</span><b id="won">0</b></div>
+    </div>
+    <div class="haul" id="haul" aria-label="Prizes won"></div>
+  </div>
+  <div class="card tools">
+    <div class="grip-row"><label class="label" for="grip">Claw grip</label><output id="gripOut" for="grip">Arcade</output></div>
+    <input type="range" id="grip" min="0" max="100" value="70">
+    <div class="btns">
+      <button class="btn" id="coin" type="button">Insert coin</button>
+      <button class="btn" id="restock" type="button">Restock</button>
+      <button class="btn" id="sound" type="button" aria-pressed="true">Sound on</button>
+    </div>
+    <div class="views" role="group" aria-label="Camera view">
+      <button class="btn" type="button" data-view="left" aria-pressed="false">Left</button>
+      <button class="btn" type="button" data-view="front" aria-pressed="false">Front</button>
+      <button class="btn" type="button" data-view="right" aria-pressed="false">Right</button>
+    </div>
+    <div class="keys"><kbd>WASD</kbd>/<kbd>↑↓←→</kbd> steer · <kbd>Space</kbd> drop · <kbd>L</kbd> <kbd>F</kbd> <kbd>R</kbd> views · drag to orbit</div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<div class="deck">
+  <div class="pad" id="pad" aria-label="Steer the claw">
+    <button class="up" type="button" data-dir="up" aria-label="Move back">▲</button>
+    <button class="left" type="button" data-dir="left" aria-label="Move left">◀</button>
+    <button class="right" type="button" data-dir="right" aria-label="Move right">▶</button>
+    <button class="down" type="button" data-dir="down" aria-label="Move forward">▼</button>
+  </div>
+  <div class="status" id="status">Steer the claw over a prize, then hit <strong>Drop</strong>.</div>
+  <button class="drop" id="drop" type="button">Drop</button>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "./lib/three/build/three.module.js",
+  "three/addons/": "./lib/three/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import RAPIER from './lib/rapier/rapier.es.js';
+
+// Dimensions follow the SolidCraft model (mm → m). SolidCraft is Z-up with the front at -Y;
+// here Y is up and the front faces +Z.
+const FLOOR_Y = 0.9;          // play floor = top of the cabinet
+const TOP_Y = 1.36;           // claw hub height when parked
+const LIMIT = 0.3;            // claw travel, ± from centre: the hub reaches the inside of the glass (0.338)
+const LIMIT_BACK = 0.28;      // a touch less at the back, where the open prongs splay toward the glass
+const HOME = { x: 0.22, z: 0.22 }; // above the prize chute
+const CHUTE = { x0: 0.16, x1: 0.32, z0: 0.16, z1: 0.32 };
+const L = 0.13, R0 = 0.03, PY = -0.03;  // prong length, pivot radius, pivot drop
+const OPEN = 0.62, CLOSED = -0.35;
+const MIN_HUB_Y = FLOOR_Y + 0.15;
+const MOVE_SPEED = 0.22, DROP_SPEED = 0.28, LIFT_SPEED = 0.2;
+const DT = 1 / 120;
+const CLAW_GROUPS = (0x0002 << 16) | 0xfffd; // claw parts ignore each other
+
+const PRIZES = [
+  ['Bubblegum', '#ff4f9a'], ['Sky', '#4fc3ff'], ['Butter', '#ffd54f'], ['Lime', '#7cff6b'],
+  ['Lilac', '#b388ff'], ['Tangerine', '#ff8a3d'], ['Mint', '#4fffd2'], ['Cherry', '#ff5252'],
+  ['Lemon', '#fff176'], ['Denim', '#64b5f6'], ['Rose', '#f06292'], ['Pistachio', '#aed581'],
+  ['Coral', '#ff7f6e'], ['Grape', '#9575cd'], ['Aqua', '#26c6da'], ['Peach', '#ffab91'],
+];
+const KINDS = [['ball', 'ball'], ['bean', 'bean'], ['cube', 'cube']];
+
+const $ = (id) => document.getElementById(id);
+const stage = $('stage');
+
+try {
+  await RAPIER.init();
+} catch (e) {
+  $('loading').textContent = 'The physics engine could not load. Check your connection and reload.';
+  throw e;
+}
+$('loading').hidden = true;
+
+// ---------- renderer & scene ----------
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 0.85;
+stage.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#140d24');
+scene.fog = new THREE.Fog('#140d24', 4, 9);
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(renderer), 0.04).texture;
+scene.environmentIntensity = 0.45;
+
+const camera = new THREE.PerspectiveCamera(38, 1, 0.05, 30);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 1.2, 0);
+// Named views: 'home' is the opening three-quarter view; null once the player orbits by hand.
+const VIEW_TARGET = new THREE.Vector3(0, 1.2, 0);
+const VIEW_DIRS = { home: [0.38, 0.32, 1], front: [0, 0.22, 1], left: [-1, 0.22, 0], right: [1, 0.22, 0] };
+let viewName = 'home', camTween = null, clawCam = false;
+controls.addEventListener('start', () => { viewName = null; camTween = null; showViewState(); });
+controls.enableDamping = true;
+controls.minDistance = 1.0;
+controls.maxDistance = 5;
+controls.maxPolarAngle = Math.PI * 0.53;
+controls.enablePan = false;
+
+function viewPose(name) {
+  const aspect = stage.clientWidth / Math.max(stage.clientHeight, 1);
+  const dist = Math.min(5.5, 2.7 * Math.max(1, 1.25 / aspect)); // room for the trophy shelf
+  const dir = new THREE.Vector3(...VIEW_DIRS[name]).normalize();
+  return VIEW_TARGET.clone().addScaledVector(dir, dist);
+}
+function frameView() {
+  camera.position.copy(viewPose(viewName || 'home'));
+  controls.target.copy(VIEW_TARGET);
+  controls.update();
+}
+function showViewState() {
+  for (const b of document.querySelectorAll('[data-view]')) b.setAttribute('aria-pressed', String(!clawCam && b.dataset.view === viewName));
+}
+// glide the camera to a named view (instant when the viewer prefers reduced motion)
+function setView(name) {
+  leaveClawCam();
+  viewName = name;
+  camTween = { p0: camera.position.clone(), t0: controls.target.clone(), p1: viewPose(name), start: performance.now() / 1000, dur: 0.7 };
+  showViewState();
+}
+function enterClawCam() {
+  clawCam = true; camTween = null;
+  controls.enabled = false;
+  camera.fov = 62; camera.near = 0.004; camera.updateProjectionMatrix();
+  hubMesh.visible = false;
+  showViewState();
+  toast('Claw cam', 'You are riding the claw. Press C to climb out.');
+}
+function leaveClawCam() {
+  if (!clawCam) return false;
+  clawCam = false;
+  controls.enabled = true;
+  camera.fov = 38; camera.near = 0.05; camera.updateProjectionMatrix();
+  hubMesh.visible = true;
+  return true;
+}
+function toggleClawCam() {
+  if (clawCam) setView(viewName || 'front'); else enterClawCam();
+}
+function updateCamera(now) {
+  if (clawCam) {
+    // ride just under the hub, looking down at the prizes; screen-up is the back of the machine,
+    // so the steering keys match what you see
+    const h = hubBody.translation();
+    camera.position.set(h.x, h.y - 0.01, h.z);
+    camera.lookAt(h.x, h.y - 1, h.z - 0.08);
+    return;
+  }
+  if (camTween) {
+    const k = reduceMotion.matches ? 1 : Math.min(1, (now - camTween.start) / camTween.dur);
+    const e = easeInOut(k);
+    camera.position.lerpVectors(camTween.p0, camTween.p1, e);
+    controls.target.lerpVectors(camTween.t0, VIEW_TARGET, e);
+    camera.lookAt(controls.target);
+    if (k >= 1) camTween = null;
+    else return;
+  }
+  controls.update();
+}
+
+scene.add(new THREE.HemisphereLight('#d9c8ff', '#2a1d47', 0.6));
+const key = new THREE.DirectionalLight('#ffffff', 1.3);
+key.position.set(1.6, 3.2, 2.4);
+key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+Object.assign(key.shadow.camera, { left: -1, right: 1, top: 2, bottom: -0.2, near: 0.5, far: 7 });
+key.shadow.bias = -0.0004;
+scene.add(key);
+const canopyLight = new THREE.SpotLight('#fff3e0', 1.6, 1.6, 1.0, 0.6, 1.2);
+canopyLight.position.set(0, 1.54, 0);
+canopyLight.target.position.set(0, FLOOR_Y, 0);
+scene.add(canopyLight, canopyLight.target);
+const glow = new THREE.PointLight('#3dff8f', 2.5, 3, 1.5);
+glow.position.set(0, 0.4, 1.2);
+scene.add(glow);
+
+const mat = (color, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.55, ...extra });
+const M = {
+  cabinet: mat('#179c4a', { roughness: 0.45 }),
+  floor: mat('#86d9a0', { roughness: 0.7 }),
+  base: mat('#2b2b33'),
+  deck: mat('#1e2a78', { roughness: 0.4 }),
+  metal: mat('#c0c4cc', { metalness: 0.95, roughness: 0.28 }),
+  rail: mat('#9aa0a6', { metalness: 0.9, roughness: 0.35 }),
+  gold: mat('#d4af37', { metalness: 1, roughness: 0.3 }),
+  dark: mat('#111111', { roughness: 0.8 }),
+  red: mat('#ff1744', { roughness: 0.3 }),
+  glass: new THREE.MeshPhysicalMaterial({ color: '#bfe9ff', transparent: true, opacity: 0.12, roughness: 0.05, depthWrite: false, side: THREE.DoubleSide }),
+  chute: new THREE.MeshPhysicalMaterial({ color: '#e0e0e0', transparent: true, opacity: 0.35, roughness: 0.1, depthWrite: false, side: THREE.DoubleSide }),
+  eye: mat('#1a1a1a', { roughness: 0.2 }),
+};
+
+function box(w, h, d, x, y, z, material, { shadow = true, rounded = 0 } = {}) {
+  const geo = rounded ? new RoundedBoxGeometry(w, h, d, 3, rounded) : new THREE.BoxGeometry(w, h, d);
+  const m = new THREE.Mesh(geo, material);
+  m.position.set(x, y, z);
+  m.castShadow = shadow; m.receiveShadow = true;
+  scene.add(m);
+  return m;
+}
+function cyl(r, h, x, y, z, material) {
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 32), material);
+  m.position.set(x, y, z); m.castShadow = true; m.receiveShadow = true;
+  scene.add(m);
+  return m;
+}
+
+// room floor
+const room = new THREE.Mesh(new THREE.CircleGeometry(6, 64), mat('#2a1d47', { roughness: 0.9 }));
+room.rotation.x = -Math.PI / 2; room.receiveShadow = true;
+scene.add(room);
+
+// cabinet (rounded like the filleted SolidCraft model)
+box(0.72, 0.06, 0.72, 0, 0.03, 0, M.base, { rounded: 0.02 });
+box(0.7, 0.9 - 0.06, 0.7, 0, 0.06 + 0.42, 0, M.cabinet, { rounded: 0.02 });
+box(0.68, 0.004, 0.68, 0, FLOOR_Y + 0.002, 0, M.floor, { shadow: false });
+box(CHUTE.x1 - CHUTE.x0, 0.006, CHUTE.z1 - CHUTE.z0, (CHUTE.x0 + CHUTE.x1) / 2, FLOOR_Y + 0.003, (CHUTE.z0 + CHUTE.z1) / 2, M.dark, { shadow: false });
+box(0.2, 0.2, 0.004, 0.24, 0.22, 0.351, M.dark, { shadow: false });           // prize door
+const flap = box(0.18, 0.18, 0.006, 0.24, 0.22, 0.356, new THREE.MeshStandardMaterial({ color: '#222', transparent: true, opacity: 0.75 }), { shadow: false });
+box(0.7, 0.06, 0.16, 0, 0.85, 0.43, M.deck, { rounded: 0.015 });               // control panel
+const coinSlot = box(0.03, 0.03, 0.006, 0.23, 0.85, 0.511, M.dark, { shadow: false });
+for (const [x, z] of [[-0.33, -0.33], [0.33, -0.33], [-0.33, 0.33], [0.33, 0.33]]) box(0.04, 0.65, 0.04, x, 1.225, z, M.metal, { rounded: 0.006 });
+box(0.62, 0.65, 0.008, 0, 1.225, 0.342, M.glass, { shadow: false });
+box(0.62, 0.65, 0.008, 0, 1.225, -0.342, M.glass, { shadow: false });
+box(0.008, 0.65, 0.62, -0.342, 1.225, 0, M.glass, { shadow: false });
+box(0.008, 0.65, 0.62, 0.342, 1.225, 0, M.glass, { shadow: false });
+box(0.74, 0.2, 0.74, 0, 1.65, 0, M.cabinet, { rounded: 0.025 });
+// chute walls
+const cw = 0.01, ch = 0.17, cy = FLOOR_Y + ch / 2;
+const chuteWalls = [
+  [CHUTE.x1 - CHUTE.x0 + 2 * cw, ch, cw, (CHUTE.x0 + CHUTE.x1) / 2, cy, CHUTE.z0 - cw / 2],
+  [CHUTE.x1 - CHUTE.x0 + 2 * cw, ch, cw, (CHUTE.x0 + CHUTE.x1) / 2, cy, CHUTE.z1 + cw / 2],
+  [cw, ch, CHUTE.z1 - CHUTE.z0, CHUTE.x0 - cw / 2, cy, (CHUTE.z0 + CHUTE.z1) / 2],
+  [cw, ch, CHUTE.z1 - CHUTE.z0, CHUTE.x1 + cw / 2, cy, (CHUTE.z0 + CHUTE.z1) / 2],
+];
+for (const w of chuteWalls) box(...w, M.chute, { shadow: false });
+
+// marquee sign
+function marqueeTexture() {
+  const c = document.createElement('canvas'); c.width = 1024; c.height = 240;
+  const g = c.getContext('2d');
+  g.fillStyle = '#ffd600'; g.fillRect(0, 0, 1024, 240);
+  g.fillStyle = '#179c4a';
+  for (let i = 0; i < 26; i++) { g.beginPath(); g.arc(20 + i * 39.2, 18, 7, 0, 7); g.arc(20 + i * 39.2, 222, 7, 0, 7); g.fill(); }
+  g.font = '400 118px Bungee, Impact, sans-serif';
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillStyle = '#7a0b33'; g.fillText('CLAW CRANE', 516, 128);
+  g.fillStyle = '#d81b60'; g.fillText('CLAW CRANE', 512, 122);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+  return t;
+}
+const marqueeMat = new THREE.MeshStandardMaterial({ map: marqueeTexture(), emissive: '#ffffff', emissiveIntensity: 0.25, roughness: 0.4 });
+marqueeMat.emissiveMap = marqueeMat.map;
+box(0.6, 0.14, 0.012, 0, 1.65, 0.376, [M.cabinet, M.cabinet, M.cabinet, M.cabinet, marqueeMat, M.cabinet], { shadow: false });
+document.fonts?.load('118px Bungee').then(() => { marqueeMat.map = marqueeMat.emissiveMap = marqueeTexture(); marqueeMat.needsUpdate = true; }).catch(() => {});
+
+// gantry
+box(0.024, 0.024, 0.66, -0.322, 1.512, 0, M.rail);
+box(0.024, 0.024, 0.66, 0.322, 1.512, 0, M.rail);
+const bridge = box(0.668, 0.03, 0.036, 0, 1.485, 0, M.rail);
+const carriage = box(0.07, 0.045, 0.07, 0, 1.4475, 0, M.rail, { rounded: 0.008 }); // no wider than the hub, so it never pokes through the glass
+const cable = cyl(0.0025, 1, 0, 1.4, 0, mat('#333333'));
+
+// hidden laser pointer (hold X): a red beam from the centre of the claw straight down to whatever it hits
+const laser = new THREE.Group(); laser.visible = false; scene.add(laser);
+const beamGeo = new THREE.CylinderGeometry(1, 1, 1, 10, 1, true).translate(0, -0.5, 0); // hangs down from its origin
+const laserCore = new THREE.Mesh(beamGeo, new THREE.MeshBasicMaterial({ color: '#ff2a2a' }));
+laserCore.scale.set(0.0012, 1, 0.0012);
+const laserGlow = new THREE.Mesh(beamGeo, new THREE.MeshBasicMaterial({ color: '#ff1a1a', transparent: true, opacity: 0.22, blending: THREE.AdditiveBlending, depthWrite: false }));
+laserGlow.scale.set(0.0045, 1, 0.0045);
+const laserDot = new THREE.Mesh(new THREE.SphereGeometry(0.006, 16, 10), new THREE.MeshBasicMaterial({ color: '#ff5050', transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false }));
+const laserLight = new THREE.PointLight('#ff2020', 0.06, 0.12, 2);
+laserDot.add(laserLight);
+laser.add(laserCore, laserGlow, laserDot);
+let laserOn = false;
+const LASER_GROUPS = (0x0001 << 16) | 0xfffd; // the ray passes through the claw's own parts
+
+// joystick + button on the panel (panel top at y 0.88)
+cyl(0.03, 0.01, -0.12, 0.885, 0.43, M.dark);
+const stick = new THREE.Group(); stick.position.set(-0.12, 0.89, 0.43); scene.add(stick);
+const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.09, 16), M.dark); shaft.position.y = 0.045; shaft.castShadow = true;
+const knob = new THREE.Mesh(new THREE.SphereGeometry(0.022, 24, 16), M.red); knob.position.y = 0.1; knob.castShadow = true;
+stick.add(shaft, knob);
+cyl(0.034, 0.008, 0.06, 0.884, 0.43, M.dark);                                  // button bezel
+const dropMat = mat('#ff1744', { roughness: 0.3, emissive: '#ff1744', emissiveIntensity: 0 });
+const dropCap = cyl(0.028, 0.018, 0.06, 0.889, 0.43, dropMat);
+const DROP_CAP_Y = 0.889, DROP_TRAVEL = 0.007;
+const stickSpring = { ax: 0, az: 0, vx: 0, vz: 0 };
+let pressedAt = -10;
+
+// ---------- physics ----------
+const world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
+world.timestep = DT;
+const fixed = world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
+const staticBox = (hx, hy, hz, x, y, z) =>
+  world.createCollider(RAPIER.ColliderDesc.cuboid(hx, hy, hz).setTranslation(x, y, z).setFriction(0.8), fixed);
+// play floor in four pieces around the chute hole
+const fy = FLOOR_Y - 0.025;
+staticBox((CHUTE.x0 + 0.35) / 2, 0.025, 0.35, (CHUTE.x0 - 0.35) / 2, fy, 0);
+staticBox((0.35 - CHUTE.x0) / 2, 0.025, (CHUTE.z0 + 0.35) / 2, (CHUTE.x0 + 0.35) / 2, fy, (CHUTE.z0 - 0.35) / 2);
+staticBox((0.35 - CHUTE.x1) / 2, 0.025, (0.35 - CHUTE.z0) / 2, (CHUTE.x1 + 0.35) / 2, fy, (CHUTE.z0 + 0.35) / 2);
+staticBox((CHUTE.x1 - CHUTE.x0) / 2, 0.025, (0.35 - CHUTE.z1) / 2, (CHUTE.x0 + CHUTE.x1) / 2, fy, (CHUTE.z1 + 0.35) / 2);
+// glass, ceiling, chute walls
+staticBox(0.35, 0.4, 0.01, 0, 1.25, 0.348);
+staticBox(0.35, 0.4, 0.01, 0, 1.25, -0.348);
+staticBox(0.01, 0.4, 0.35, 0.348, 1.25, 0);
+staticBox(0.01, 0.4, 0.35, -0.348, 1.25, 0);
+staticBox(0.35, 0.01, 0.35, 0, 1.56, 0);
+for (const [w, h, d, x, y, z] of chuteWalls) staticBox(w / 2, h / 2, d / 2, x, y, z);
+
+// claw: kinematic hub + three dynamic prongs on motorised revolute joints
+const hub = { x: HOME.x, y: TOP_Y, z: HOME.z };
+const hubBody = world.createRigidBody(RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(hub.x, hub.y, hub.z));
+const hubCollider = world.createCollider(RAPIER.ColliderDesc.cylinder(0.025, 0.035).setCollisionGroups(CLAW_GROUPS).setFriction(0.6), hubBody);
+const hubMesh = new THREE.Group(); scene.add(hubMesh);
+{
+  const top = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.05, 32), M.gold); top.castShadow = true;
+  const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.026, 0.02, 32), M.gold); cap.position.y = -0.035; cap.castShadow = true;
+  hubMesh.add(top, cap);
+}
+
+const prongs = [];
+for (let i = 0; i < 3; i++) {
+  const phi = i * (Math.PI * 2 / 3) + Math.PI / 6;
+  const radial = new THREE.Vector3(Math.cos(phi), 0, -Math.sin(phi));
+  const tangent = new THREE.Vector3(Math.sin(phi), 0, Math.cos(phi));
+  const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), phi);
+  const pivot = radial.clone().multiplyScalar(R0).add(new THREE.Vector3(0, PY, 0));
+  const armC = pivot.clone().add(new THREE.Vector3(0, -L / 2, 0));
+  const hookC = pivot.clone().add(new THREE.Vector3(0, -L, 0)).addScaledVector(radial, -0.014);
+  const rq = { x: q.x, y: q.y, z: q.z, w: q.w };
+
+  const body = world.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(hub.x, hub.y, hub.z).setCanSleep(false).setAngularDamping(1));
+  const part = (desc, c) => world.createCollider(desc.setTranslation(c.x, c.y, c.z).setRotation(rq).setDensity(2000).setFriction(1.3).setCollisionGroups(CLAW_GROUPS), body);
+  const colliders = [part(RAPIER.ColliderDesc.cuboid(0.005, L / 2, 0.012), armC), part(RAPIER.ColliderDesc.cuboid(0.016, 0.005, 0.012), hookC)];
+
+  const joint = world.createImpulseJoint(RAPIER.JointData.revolute(pivot, pivot, tangent), hubBody, body, true);
+  joint.setContactsEnabled(false);
+  joint.setLimits(-0.45, 0.75);
+  joint.configureMotorModel(RAPIER.MotorModel.ForceBased);
+
+  const g = new THREE.Group();
+  const arm = new THREE.Mesh(new THREE.BoxGeometry(0.01, L, 0.024), M.gold); arm.position.copy(armC); arm.quaternion.copy(q);
+  const hook = new THREE.Mesh(new THREE.BoxGeometry(0.032, 0.01, 0.024), M.gold); hook.position.copy(hookC); hook.quaternion.copy(q);
+  const knuckle = new THREE.Mesh(new THREE.SphereGeometry(0.009, 16, 12), M.gold); knuckle.position.copy(pivot);
+  for (const m of [arm, hook, knuckle]) { m.castShadow = true; g.add(m); }
+  scene.add(g);
+  prongs.push({ body, joint, colliders, mesh: g });
+}
+
+let gripLevel = 0.7;
+function gripStiffness() { return 0.004 + gripLevel * gripLevel * 0.3; } // N·m/rad at the hinge
+function setClaw(angle, stiffness) {
+  for (const p of prongs) p.joint.configureMotorPosition(angle, stiffness, 0.02);
+}
+setClaw(OPEN, 0.5);
+
+// ---------- character toys ----------
+// Each build() returns a Group made of scaled unit primitives (facing +z, or +x for the fish),
+// the compound collider shapes in the same local frame, the drop from origin to the toy's
+// underside (half) and the named parts its shelf persona animates.
+const SPH = new THREE.SphereGeometry(1, 24, 16);
+const CYL = new THREE.CylinderGeometry(1, 1, 1, 14);
+const CONE = new THREE.ConeGeometry(1, 1, 16);
+const plush = (c) => mat(c, { roughness: 0.82 });
+const WHITE = plush('#ffffff'), INK = mat('#151515', { roughness: 0.25 }), PINK = plush('#ff8fab');
+function part(parent, geo, material, [x, y, z], [sx, sy, sz], [rx, ry, rz] = [0, 0, 0]) {
+  const m = new THREE.Mesh(geo, material);
+  m.position.set(x, y, z); m.scale.set(sx, sy, sz); m.rotation.set(rx, ry, rz);
+  m.castShadow = true; m.receiveShadow = true;
+  parent.add(m);
+  return m;
+}
+function pivot(parent, x, y, z) { const g = new THREE.Group(); g.position.set(x, y, z); parent.add(g); return g; }
+function cuteEye(parent, [x, y, z], r, [dx, dy, dz] = [0, 0, 1]) {
+  part(parent, SPH, WHITE, [x, y, z], [r, r, r]);
+  part(parent, SPH, INK, [x + dx * r * 0.5, y + dy * r * 0.5, z + dz * r * 0.5], [r * 0.62, r * 0.62, r * 0.62]);
+  const hl = r * 0.16;
+  part(parent, SPH, WHITE, [x + dx * r * 0.95 + r * 0.2 * Math.abs(dz), y + dy * r * 0.95 + r * 0.25, z + dz * r * 0.95 + r * 0.2 * Math.abs(dx)], [hl, hl, hl]);
+}
+const quat = (ax, ay, az, angle) => { const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(ax, ay, az), angle); return { x: q.x, y: q.y, z: q.z, w: q.w }; };
+const ALONG_Z = quat(1, 0, 0, Math.PI / 2), ALONG_X = quat(0, 0, 1, Math.PI / 2);
+const C = RAPIER.ColliderDesc;
+
+const CHARACTERS = {
+  alligator: {
+    name: 'alligator', color: '#3f9b48', persona: 'snaps its way',
+    build() {
+      const g = new THREE.Group();
+      const green = plush('#3f9b48'), belly = plush('#c3e59a'), dark = plush('#2c7434');
+      part(g, SPH, green, [0, 0, 0], [0.034, 0.027, 0.055]);
+      part(g, SPH, belly, [0, -0.009, 0.004], [0.029, 0.02, 0.05]);
+      part(g, SPH, green, [0, 0.006, 0.062], [0.027, 0.016, 0.04]);              // upper jaw
+      for (const sx of [-1, 1]) {
+        for (let i = 0; i < 4; i++) part(g, CONE, WHITE, [sx * 0.021, -0.006, 0.055 + i * 0.011], [0.003, 0.008, 0.003], [Math.PI, 0, 0]);
+        part(g, SPH, green, [sx * 0.013, 0.02, 0.046], [0.011, 0.01, 0.011]);   // eye bumps
+        cuteEye(g, [sx * 0.013, 0.027, 0.05], 0.008, [sx * 0.2, 0.35, 0.9]);
+        part(g, SPH, INK, [sx * 0.007, 0.019, 0.098], [0.003, 0.002, 0.003]);   // nostrils
+        for (const sz of [0.03, -0.03]) part(g, SPH, green, [sx * 0.03, -0.022, sz], [0.012, 0.01, 0.015]);
+      }
+      for (let i = 0; i < 5; i++) part(g, SPH, dark, [0, 0.026, -0.035 + i * 0.016], [0.008, 0.006, 0.007]);
+      const jaw = pivot(g, 0, -0.004, 0.04);
+      part(jaw, SPH, belly, [0, -0.007, 0.022], [0.024, 0.009, 0.036]);
+      const tail = pivot(g, 0, -0.002, -0.048);
+      part(tail, CONE, green, [0, 0, -0.033], [0.022, 0.07, 0.015], [-Math.PI / 2, 0, 0]);
+      for (let i = 0; i < 3; i++) part(tail, SPH, dark, [0, 0.012 - i * 0.003, -0.01 - i * 0.017], [0.006, 0.005, 0.006]);
+      return {
+        mesh: g, half: 0.032, parts: { jaw, tail },
+        shapes: [
+          { desc: C.capsule(0.035, 0.03), t: [0, 0, 0], q: ALONG_Z },
+          { desc: C.cuboid(0.024, 0.016, 0.028), t: [0, 0.002, 0.07] },
+          { desc: C.capsule(0.022, 0.013), t: [0, 0, -0.085], q: ALONG_Z },
+        ],
+      };
+    },
+  },
+  mantis: {
+    name: 'praying mantis', color: '#7cc242', persona: 'prays its way',
+    build() {
+      const g = new THREE.Group();
+      const green = plush('#7cc242'), light = plush('#b9e46f'), eyeC = plush('#dce775');
+      const wing = new THREE.MeshStandardMaterial({ color: '#c5e1a5', roughness: 0.4, transparent: true, opacity: 0.75 });
+      part(g, SPH, green, [0, -0.012, -0.032], [0.02, 0.017, 0.048], [0.3, 0, 0]);  // abdomen
+      part(g, SPH, wing, [0, -0.0, -0.03], [0.017, 0.005, 0.044], [0.3, 0, 0]);
+      part(g, CYL, green, [0, 0.018, 0.006], [0.008, 0.05, 0.008], [0.35, 0, 0]);  // thorax
+      for (const sx of [-1, 1]) for (const sz of [0.012, -0.022])
+        part(g, CYL, green, [sx * 0.022, -0.013, sz], [0.0018, 0.05, 0.0018], [0, 0, sx * 0.9]);
+      const head = pivot(g, 0, 0.047, 0.016);
+      part(head, SPH, green, [0, 0, 0], [0.022, 0.017, 0.015]);
+      part(head, CONE, light, [0, -0.016, 0.006], [0.008, 0.014, 0.006], [Math.PI, 0, 0]);
+      const arms = [];
+      for (const sx of [-1, 1]) {
+        part(head, SPH, eyeC, [sx * 0.019, 0.006, 0.003], [0.011, 0.012, 0.011]);
+        part(head, SPH, INK, [sx * 0.021, 0.006, 0.012], [0.0045, 0.0045, 0.0035]);
+        part(head, CYL, green, [sx * 0.009, 0.028, 0.004], [0.0014, 0.04, 0.0014], [0.25, 0, -sx * 0.4]);
+        const arm = pivot(g, sx * 0.01, 0.03, 0.02);
+        part(arm, CYL, light, [0, 0.011, 0.014], [0.0045, 0.035, 0.0045], [0.9, 0, 0]);      // femur
+        part(arm, CYL, light, [0, 0.012, 0.022], [0.0035, 0.026, 0.0035], [-2.6, 0, 0]);    // folded tibia
+        arms.push(arm);
+      }
+      return {
+        mesh: g, half: 0.03, parts: { head, arms },
+        shapes: [
+          { desc: C.capsule(0.03, 0.022), t: [0, -0.008, -0.02], q: ALONG_Z },
+          { desc: C.ball(0.024), t: [0, 0.036, 0.014] },
+        ],
+      };
+    },
+  },
+  kitten: {
+    name: 'kitten', color: '#ffb05c', persona: 'pounces',
+    build() {
+      const g = new THREE.Group();
+      const fur = plush('#ffb05c'), stripe = plush('#e0782b'), cream = plush('#fff1dc');
+      part(g, SPH, fur, [0, -0.01, -0.008], [0.038, 0.034, 0.045]);
+      part(g, SPH, cream, [0, -0.004, 0.022], [0.025, 0.026, 0.02]);
+      for (let i = 0; i < 3; i++) part(g, SPH, stripe, [0, 0.019, -0.03 + i * 0.016], [0.03, 0.007, 0.005]);
+      for (const sx of [-1, 1]) {
+        part(g, SPH, cream, [sx * 0.016, -0.041, 0.028], [0.011, 0.008, 0.013]);
+        part(g, SPH, fur, [sx * 0.026, -0.04, -0.022], [0.012, 0.009, 0.015]);
+      }
+      const head = pivot(g, 0, 0.038, 0.018);
+      part(head, SPH, fur, [0, 0, 0], [0.036, 0.032, 0.031]);
+      part(head, SPH, cream, [0, -0.011, 0.024], [0.016, 0.011, 0.01]);
+      part(head, SPH, PINK, [0, -0.004, 0.032], [0.004, 0.003, 0.003]);
+      part(head, SPH, stripe, [0, 0.027, 0.012], [0.009, 0.004, 0.012]);
+      for (const sx of [-1, 1]) {
+        cuteEye(head, [sx * 0.014, 0.004, 0.024], 0.0085);
+        part(head, CONE, fur, [sx * 0.02, 0.031, 0], [0.012, 0.024, 0.009], [0, 0, -sx * 0.35]);
+        part(head, CONE, PINK, [sx * 0.019, 0.029, 0.004], [0.007, 0.015, 0.004], [0, 0, -sx * 0.35]);
+        for (let k = -1; k <= 1; k++)
+          part(head, CYL, WHITE, [sx * 0.03, -0.009 + k * 0.004, 0.022], [0.0006, 0.03, 0.0006], [0, 0, Math.PI / 2 + sx * k * 0.15]);
+      }
+      const tail = pivot(g, 0, -0.012, -0.05);
+      const curve = new THREE.CatmullRomCurve3([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0.02, -0.022), new THREE.Vector3(0.008, 0.05, -0.026), new THREE.Vector3(0.018, 0.068, -0.012)]);
+      part(tail, new THREE.TubeGeometry(curve, 20, 0.007, 8), fur, [0, 0, 0], [1, 1, 1]);
+      part(tail, SPH, stripe, [0.018, 0.068, -0.012], [0.008, 0.008, 0.008]);
+      return {
+        mesh: g, half: 0.049, parts: { head, tail },
+        shapes: [{ desc: C.ball(0.04), t: [0, -0.008, -0.006] }, { desc: C.ball(0.033), t: [0, 0.038, 0.018] }],
+      };
+    },
+  },
+  puppy: {
+    name: 'puppy', color: '#d9a066', persona: 'bounds',
+    build() {
+      const g = new THREE.Group();
+      const fur = plush('#d9a066'), brown = plush('#8a5a2b'), cream = plush('#fbe9d0');
+      part(g, SPH, fur, [0, -0.01, -0.01], [0.04, 0.035, 0.048]);
+      part(g, SPH, cream, [0, -0.006, 0.022], [0.026, 0.026, 0.02]);
+      part(g, SPH, brown, [0.022, 0.012, -0.022], [0.018, 0.014, 0.017]);
+      for (const sx of [-1, 1]) for (const sz of [0.026, -0.03]) part(g, SPH, fur, [sx * 0.022, -0.04, sz], [0.012, 0.011, 0.013]);
+      const head = pivot(g, 0, 0.04, 0.02);
+      part(head, SPH, fur, [0, 0, 0], [0.035, 0.032, 0.032]);
+      part(head, SPH, cream, [0, -0.009, 0.029], [0.018, 0.014, 0.016]);
+      part(head, SPH, INK, [0, -0.001, 0.045], [0.007, 0.005, 0.005]);
+      part(head, SPH, PINK, [0, -0.021, 0.037], [0.006, 0.0035, 0.006]);
+      part(head, SPH, brown, [0.016, 0.01, 0.021], [0.012, 0.012, 0.008]);
+      const ears = [];
+      for (const sx of [-1, 1]) {
+        cuteEye(head, [sx * 0.014, 0.009, 0.026], 0.0078);
+        const ear = pivot(head, sx * 0.03, 0.02, 0);
+        part(ear, SPH, brown, [sx * 0.003, -0.021, 0], [0.009, 0.025, 0.016], [0, 0, sx * 0.15]);
+        ears.push(ear);
+      }
+      const tail = pivot(g, 0, 0.006, -0.055);
+      part(tail, SPH, brown, [0, 0.017, -0.006], [0.007, 0.02, 0.007], [-0.4, 0, 0]);
+      return {
+        mesh: g, half: 0.052, parts: { head, ears, tail },
+        shapes: [{ desc: C.ball(0.041), t: [0, -0.01, -0.008] }, { desc: C.ball(0.033), t: [0, 0.04, 0.022] }],
+      };
+    },
+  },
+  clownfish: {
+    name: 'clown fish', color: '#ff7417', persona: 'swims',
+    build() {
+      const g = new THREE.Group();
+      const orange = plush('#ff7417');
+      part(g, SPH, orange, [0, 0, 0], [0.055, 0.038, 0.022]);
+      // white bands with thin black edges, like the real fish
+      for (const [x, sy, sz, w] of [[0.028, 0.036, 0.023, 0.007], [-0.003, 0.039, 0.0235, 0.008], [-0.041, 0.023, 0.016, 0.006]]) {
+        part(g, SPH, INK, [x, 0, 0], [w + 0.0025, sy + 0.0005, sz + 0.0004]);
+        part(g, SPH, WHITE, [x, 0, 0], [w, sy + 0.001, sz + 0.0008]);
+      }
+      part(g, SPH, orange, [-0.006, 0.034, 0], [0.03, 0.014, 0.004]);                // dorsal fin
+      part(g, SPH, orange, [0.0, -0.032, 0], [0.016, 0.01, 0.004]);
+      for (const sz of [-1, 1]) {
+        part(g, SPH, orange, [0.018, -0.012, sz * 0.022], [0.012, 0.008, 0.003], [0, sz * 0.4, 0]);
+        cuteEye(g, [0.037, 0.01, sz * 0.016], 0.0085, [0.35, 0, sz * 0.93]);
+      }
+      part(g, SPH, INK, [0.054, -0.006, 0], [0.004, 0.003, 0.006]);
+      const tail = pivot(g, -0.05, 0, 0);
+      part(tail, SPH, orange, [-0.017, 0, 0], [0.016, 0.024, 0.004]);
+      part(tail, SPH, INK, [-0.03, 0, 0], [0.004, 0.02, 0.0045]);
+      return {
+        mesh: g, half: 0.038, parts: { tail },
+        shapes: [{ desc: C.capsule(0.032, 0.034), t: [0, 0, 0], q: ALONG_X }],
+      };
+    },
+  },
+  penguin: {
+    name: 'penguin', color: '#263238', persona: 'waddles',
+    build() {
+      const g = new THREE.Group();
+      const black = plush('#263238'), beakC = plush('#ff9800');
+      part(g, SPH, black, [0, 0, 0], [0.034, 0.05, 0.032]);
+      part(g, SPH, WHITE, [0, -0.006, 0.012], [0.026, 0.04, 0.024]);
+      part(g, SPH, black, [0, 0.045, 0.004], [0.026, 0.025, 0.025]);
+      part(g, CONE, beakC, [0, 0.04, 0.034], [0.007, 0.016, 0.006], [Math.PI / 2, 0, 0]);
+      const flippers = [];
+      for (const sx of [-1, 1]) {
+        part(g, SPH, WHITE, [sx * 0.009, 0.047, 0.02], [0.011, 0.012, 0.007]);
+        cuteEye(g, [sx * 0.009, 0.049, 0.025], 0.0065);
+        part(g, SPH, beakC, [sx * 0.012, -0.05, 0.016], [0.011, 0.004, 0.014]);
+        const f = pivot(g, sx * 0.031, 0.02, 0);
+        part(f, SPH, black, [sx * 0.006, -0.022, 0], [0.007, 0.026, 0.014], [0, 0, sx * 0.2]);
+        flippers.push(f);
+      }
+      return {
+        mesh: g, half: 0.054, parts: { flippers },
+        shapes: [{ desc: C.capsule(0.026, 0.032), t: [0, 0.004, 0] }],
+      };
+    },
+  },
+  snake: {
+    name: 'black and red snake', color: '#d32f2f', persona: 'slithers',
+    build() {
+      const g = new THREE.Group();
+      const black = plush('#1e1e1e'), red = plush('#d32f2f');
+      // coil: a spiral that rises and tightens, then the neck lifts the head up front
+      const pts = [];
+      for (let k = 0; k <= 24; k++) {
+        const t = k / 24, a = -Math.PI / 2 - t * Math.PI * 3, r = 0.04 - 0.02 * t;
+        pts.push(new THREE.Vector3(Math.cos(a) * r, -0.019 + t * 0.026, -Math.sin(a) * r));
+      }
+      pts.push(new THREE.Vector3(0, 0.018, 0.01));
+      const coil = new THREE.CatmullRomCurve3(pts);
+      part(g, new THREE.TubeGeometry(coil, 90, 0.011, 10), black, [0, 0, 0], [1, 1, 1]);
+      for (let k = 2; k < 22; k += 3) part(g, SPH, red, coil.getPoint(k / 26).add(new THREE.Vector3(0, 0.009, 0)).toArray(), [0.008, 0.004, 0.008]);
+      part(g, CONE, black, pts[0].clone().add(new THREE.Vector3(-0.012, 0, 0)).toArray(), [0.007, 0.024, 0.007], [0, 0, Math.PI / 2]); // tail tip
+      const head = pivot(g, 0, 0.03, 0.012);
+      part(head, CYL, black, [0, -0.008, -0.002], [0.01, 0.022, 0.01]);                 // neck
+      part(head, SPH, black, [0, 0.004, 0.008], [0.016, 0.012, 0.022]);
+      const tongue = pivot(head, 0, -0.001, 0.029);
+      for (const sx of [-1, 1]) part(tongue, CYL, PINK, [sx * 0.002, 0, 0.006], [0.0012, 0.014, 0.0012], [Math.PI / 2, 0, sx * 0.25]);
+      for (const sx of [-1, 1]) cuteEye(head, [sx * 0.01, 0.011, 0.015], 0.0065, [sx * 0.35, 0.2, 0.9]);
+      return {
+        mesh: g, half: 0.031, parts: { head, tongue },
+        shapes: [{ desc: C.cylinder(0.02, 0.048), t: [0, -0.01, 0] }, { desc: C.ball(0.018), t: [0, 0.032, 0.018] }],
+      };
+    },
+  },
+  sparrow: {
+    name: 'red and blue sparrow', color: '#e53935', persona: 'flutters',
+    build() {
+      const g = new THREE.Group();
+      const red = plush('#e53935'), breast = plush('#ff7961'), blue = plush('#1a2f7a'), beakC = plush('#ffb300');
+      part(g, SPH, red, [0, 0, 0], [0.034, 0.031, 0.044]);
+      part(g, SPH, breast, [0, -0.005, 0.021], [0.026, 0.023, 0.021]);
+      part(g, SPH, blue, [0, 0.013, -0.057], [0.018, 0.005, 0.029], [0.5, 0, 0]);       // tail
+      const head = pivot(g, 0, 0.031, 0.031);
+      part(head, SPH, blue, [0, 0, 0], [0.025, 0.023, 0.023]);
+      part(head, CONE, beakC, [0, -0.003, 0.026], [0.0065, 0.016, 0.0065], [Math.PI / 2, 0, 0]);
+      const wings = [];
+      for (const sx of [-1, 1]) {
+        cuteEye(head, [sx * 0.014, 0.005, 0.017], 0.007, [sx * 0.4, 0, 0.9]);
+        const w = pivot(g, sx * 0.031, 0.008, -0.003);
+        part(w, SPH, blue, [sx * 0.005, 0, -0.013], [0.008, 0.021, 0.034], [0.2, 0, sx * 0.15]);
+        wings.push(w);
+        part(g, CYL, beakC, [sx * 0.01, -0.036, 0.005], [0.002, 0.018, 0.002]);
+        part(g, SPH, beakC, [sx * 0.01, -0.045, 0.01], [0.005, 0.002, 0.008]);
+      }
+      return {
+        mesh: g, half: 0.046, parts: { head, wings },
+        shapes: [{ desc: C.ball(0.035), t: [0, 0, 0] }, { desc: C.ball(0.024), t: [0, 0.031, 0.031] }],
+      };
+    },
+  },
+  duck: {
+    name: 'yellow rubber ducky', color: '#ffd600', persona: 'bobs its way',
+    build() {
+      const g = new THREE.Group();
+      const yellow = mat('#ffd600', { roughness: 0.35 }), bill = mat('#ff8f00', { roughness: 0.35 });
+      part(g, SPH, yellow, [0, -0.01, -0.005], [0.036, 0.03, 0.046]);
+      for (const sx of [-1, 1]) part(g, SPH, yellow, [sx * 0.031, -0.004, -0.01], [0.008, 0.017, 0.026], [0.2, 0, sx * 0.2]);  // wings
+      const tail = pivot(g, 0, 0.004, -0.044);
+      part(tail, CONE, yellow, [0, 0.006, -0.006], [0.013, 0.024, 0.01], [-0.9, 0, 0]);
+      const head = pivot(g, 0, 0.03, 0.02);
+      part(head, SPH, yellow, [0, 0, 0], [0.026, 0.025, 0.025]);
+      part(head, SPH, bill, [0, -0.003, 0.026], [0.014, 0.0045, 0.013]);
+      part(head, SPH, bill, [0, -0.008, 0.023], [0.011, 0.003, 0.01]);
+      part(head, CONE, yellow, [0, 0.027, -0.002], [0.004, 0.011, 0.004], [-0.3, 0, 0]);  // little tuft
+      for (const sx of [-1, 1]) cuteEye(head, [sx * 0.012, 0.007, 0.02], 0.0065, [sx * 0.3, 0, 0.95]);
+      return {
+        mesh: g, half: 0.04, parts: { head, tail },
+        shapes: [{ desc: C.ball(0.037), t: [0, -0.008, -0.005] }, { desc: C.ball(0.025), t: [0, 0.03, 0.02] }],
+      };
+    },
+  },
+  mouse: {
+    name: 'blue mouse', color: '#3f7fe0', persona: 'scurries',
+    build() {
+      const g = new THREE.Group();
+      const blue = plush('#3f7fe0'), pale = plush('#a9c8ff');
+      part(g, SPH, blue, [0, -0.012, -0.01], [0.03, 0.028, 0.042]);
+      part(g, SPH, pale, [0, -0.016, 0.012], [0.021, 0.02, 0.02]);
+      for (const sx of [-1, 1]) for (const sz of [0.018, -0.03]) part(g, SPH, PINK, [sx * 0.017, -0.039, sz], [0.008, 0.004, 0.01]);
+      const head = pivot(g, 0, 0.024, 0.026);
+      part(head, SPH, blue, [0, 0, 0.004], [0.026, 0.024, 0.026]);
+      part(head, CONE, blue, [0, -0.004, 0.03], [0.014, 0.026, 0.013], [Math.PI / 2, 0, 0]);  // snout
+      const nose = pivot(head, 0, -0.004, 0.043);
+      part(nose, SPH, PINK, [0, 0, 0], [0.0045, 0.004, 0.004]);
+      const ears = [];
+      for (const sx of [-1, 1]) {
+        cuteEye(head, [sx * 0.011, 0.008, 0.021], 0.007, [sx * 0.25, 0, 0.95]);
+        for (let k = -1; k <= 1; k++)
+          part(nose, CYL, WHITE, [sx * 0.013, -0.002 + k * 0.003, -0.003], [0.0005, 0.022, 0.0005], [0, 0, Math.PI / 2 + sx * k * 0.15]);
+        const ear = pivot(head, sx * 0.018, 0.02, 0);
+        part(ear, SPH, blue, [sx * 0.004, 0.012, 0], [0.017, 0.017, 0.004], [0, 0, -sx * 0.25]);
+        part(ear, SPH, PINK, [sx * 0.004, 0.012, 0.0025], [0.011, 0.011, 0.003], [0, 0, -sx * 0.25]);
+        ears.push(ear);
+      }
+      const tail = pivot(g, 0, -0.02, -0.05);
+      const curve = new THREE.CatmullRomCurve3([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0.01, -0.008, -0.025), new THREE.Vector3(-0.012, -0.012, -0.05), new THREE.Vector3(0.006, -0.004, -0.075)]);
+      part(tail, new THREE.TubeGeometry(curve, 24, 0.003, 6), PINK, [0, 0, 0], [1, 1, 1]);
+      return {
+        mesh: g, half: 0.043, parts: { head, nose, ears, tail },
+        shapes: [{ desc: C.capsule(0.012, 0.029), t: [0, -0.012, -0.01], q: ALONG_Z }, { desc: C.ball(0.024), t: [0, 0.024, 0.03] }],
+      };
+    },
+  },
+  frog: {
+    name: 'orange-spotted frog', color: '#4caf50', persona: 'leaps',
+    build() {
+      const g = new THREE.Group();
+      const green = plush('#4caf50'), belly = plush('#e3f3c4'), orange = plush('#ff8f00');
+      const R = [0.04, 0.026, 0.042], O = [0, -0.01, 0];
+      part(g, SPH, green, O, R);
+      part(g, SPH, belly, [0, -0.016, 0.012], [0.032, 0.018, 0.032]);
+      // orange spots sunk into the back, placed on the body's surface
+      for (const [dx, dy, dz, r] of [[0, 1, -0.2, 0.009], [0.45, 0.8, -0.4, 0.007], [-0.5, 0.75, -0.3, 0.008], [0.35, 0.85, 0.25, 0.006],
+        [-0.3, 0.9, 0.2, 0.006], [0.8, 0.45, -0.1, 0.006], [-0.8, 0.45, 0.05, 0.007], [0.1, 0.6, -0.8, 0.007], [-0.4, 0.5, -0.75, 0.006]]) {
+        const n = new THREE.Vector3(dx, dy, dz).normalize();
+        part(g, SPH, orange, [O[0] + R[0] * n.x * 0.94, O[1] + R[1] * n.y * 0.94, O[2] + R[2] * n.z * 0.94], [r * 1.45, r * 0.7, r * 1.45]);
+      }
+      const throat = pivot(g, 0, -0.019, 0.03);
+      part(throat, SPH, belly, [0, 0, 0], [0.017, 0.01, 0.012]);
+      part(g, SPH, INK, [0, -0.006, 0.04], [0.022, 0.0015, 0.004]);                         // wide smile
+      for (const sx of [-1, 1]) {
+        part(g, SPH, green, [sx * 0.02, 0.014, 0.022], [0.014, 0.013, 0.014]);           // eye bumps
+        part(g, SPH, orange, [sx * 0.021, 0.025, 0.017], [0.005, 0.003, 0.005]);
+        cuteEye(g, [sx * 0.021, 0.019, 0.031], 0.0095, [sx * 0.2, 0.25, 0.95]);
+        part(g, SPH, PINK, [sx * 0.028, -0.004, 0.032], [0.006, 0.004, 0.003]);          // cheeks
+        part(g, SPH, green, [sx * 0.022, -0.028, 0.03], [0.007, 0.012, 0.007]);          // front legs
+        part(g, SPH, green, [sx * 0.026, -0.036, 0.04], [0.009, 0.003, 0.009]);
+      }
+      const legs = [];
+      for (const sx of [-1, 1]) {
+        const leg = pivot(g, sx * 0.03, -0.016, -0.018);
+        part(leg, SPH, green, [sx * 0.006, 0, 0], [0.013, 0.012, 0.022]);                 // folded thigh
+        part(leg, SPH, orange, [sx * 0.008, 0.009, -0.004], [0.005, 0.003, 0.005]);
+        part(leg, SPH, green, [sx * 0.012, -0.018, 0.012], [0.011, 0.003, 0.017]);        // webbed foot
+        legs.push(leg);
+      }
+      return {
+        mesh: g, half: 0.037, parts: { throat, legs },
+        shapes: [{ desc: C.roundCuboid(0.028, 0.012, 0.03, 0.012), t: [0, -0.012, 0] }, { desc: C.ball(0.016), t: [0, 0.012, 0.022] }],
+      };
+    },
+  },
+};
+
+// prizes
+let prizes = [];
+const eyeGeo = new THREE.SphereGeometry(0.0055, 12, 8);
+function addEyes(mesh, front) {
+  for (const sx of [-1, 1]) { const e = new THREE.Mesh(eyeGeo, M.eye); e.position.set(sx * 0.013, 0.01, front); mesh.add(e); }
+}
+function spawnPrize(i, x, y, z, character) {
+  let name, color, kind, mesh, shapes, half, parts = null, density = 192;
+  if (character) {
+    const c = CHARACTERS[character];
+    ({ mesh, shapes, half, parts } = c.build());
+    name = c.name; color = c.color; kind = character;
+  } else {
+    let label;
+    [label, color] = PRIZES[i % PRIZES.length];
+    kind = KINDS[i % 3][0];
+    name = `${label} ${kind}`;
+    let geo, desc, front;
+    if (kind === 'ball') {
+      const r = 0.042 + Math.random() * 0.008;
+      geo = new THREE.SphereGeometry(r, 32, 20); desc = RAPIER.ColliderDesc.ball(r); front = r * 0.96; half = r;
+    } else if (kind === 'bean') {
+      geo = new THREE.CapsuleGeometry(0.033, 0.05, 8, 20); desc = RAPIER.ColliderDesc.capsule(0.025, 0.033); front = 0.032; half = 0.058;
+    } else {
+      const s = 0.07, rr = 0.018; half = s / 2;
+      geo = new RoundedBoxGeometry(s, s, s, 4, rr); desc = RAPIER.ColliderDesc.roundCuboid(s / 2 - rr, s / 2 - rr, s / 2 - rr, rr); front = s / 2;
+      density *= (s / (s - 2 * rr)) ** 3; // Rapier weighs only the inner cuboid of a round cuboid
+    }
+    mesh = new THREE.Mesh(geo, mat(color, { roughness: 0.75 })); mesh.castShadow = true; mesh.receiveShadow = true;
+    addEyes(mesh, front);
+    shapes = [{ desc }];
+  }
+  mesh.userData.parts = parts;
+  scene.add(mesh);
+  // stuffed fabric: 20% heavier than before, no bounce, grippy, and quick to stop rolling or spinning
+  // character toys start roughly upright so they land face-up in the pile; plain prizes tumble in any way
+  const rot = new THREE.Quaternion().setFromEuler(character
+    ? new THREE.Euler((Math.random() - 0.5) * 0.4, Math.random() * 6.28, (Math.random() - 0.5) * 0.4)
+    : new THREE.Euler(Math.random() * 6, Math.random() * 6, Math.random() * 6));
+  const body = world.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(x, y, z)
+    .setRotation({ x: rot.x, y: rot.y, z: rot.z, w: rot.w }).setLinearDamping(0.5).setAngularDamping(2.2).setCcdEnabled(true));
+  for (const s of shapes) {
+    if (s.t) s.desc.setTranslation(...s.t);
+    if (s.q) s.desc.setRotation(s.q);
+    world.createCollider(s.desc.setDensity(density).setFriction(1.1)
+      .setRestitution(0).setRestitutionCombineRule(RAPIER.CoefficientCombineRule.Min), body);
+  }
+  prizes.push({ name, color, body, mesh, kind, half });
+}
+function restock() {
+  for (const p of prizes) { world.removeRigidBody(p.body); scene.remove(p.mesh); }
+  prizes = [];
+  const spotsFor = (n) => {
+    const spots = [];
+    for (let tries = 0; spots.length < n && tries < 4000; tries++) {
+      const x = -0.27 + Math.random() * 0.54, z = -0.27 + Math.random() * 0.54;
+      if (x > CHUTE.x0 - 0.07 && z > CHUTE.z0 - 0.07) continue;
+      if (spots.some((s) => Math.hypot(s.x - x, s.z - z) < 0.1)) continue;
+      spots.push({ x, z });
+    }
+    return spots;
+  };
+  // two of every character toy plus 8 plain prizes, dropped in two layers: the plain prizes and some
+  // toys first, then the rest of the toys on top once the first layer has settled
+  const toys = Object.keys(CHARACTERS).flatMap((k) => [k, k]).sort(() => Math.random() - 0.5);
+  const queue = [...Array(8)].map((_, i) => ({ i })).concat(toys.map((c, i) => ({ i, c })));
+  for (const [layer, y] of [[queue.splice(0, 16), FLOOR_Y + 0.07], [queue, FLOOR_Y + 0.21]]) {
+    spotsFor(layer.length).forEach((s, k) => spawnPrize(layer[k].i, s.x, y + Math.random() * 0.03, s.z, layer[k].c));
+    for (let k = 0; k < 160; k++) world.step(); // settle before the next layer / before showing
+  }
+}
+
+// ---------- sound (all synthesised with Web Audio) ----------
+const Sound = (() => {
+  let ctx = null, master, motorGain, osc1, osc2, filter, noiseBuf;
+  let muted = false;
+  try { muted = localStorage.getItem('claw-crane-muted') === '1'; } catch {}
+  const VOL = 0.6;
+  function unlock() {
+    if (ctx) { if (ctx.state === 'suspended') ctx.resume(); return; }
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    ctx = new AC();
+    master = ctx.createGain(); master.gain.value = muted ? 0 : VOL; master.connect(ctx.destination);
+    // motor: detuned saw + square through a resonant low-pass, with a fast tremolo for gear rattle
+    filter = ctx.createBiquadFilter(); filter.type = 'lowpass'; filter.frequency.value = 700; filter.Q.value = 4;
+    osc1 = ctx.createOscillator(); osc1.type = 'sawtooth'; osc1.frequency.value = 85;
+    osc2 = ctx.createOscillator(); osc2.type = 'square'; osc2.frequency.value = 128;
+    const o2 = ctx.createGain(); o2.gain.value = 0.35;
+    const trem = ctx.createGain(); trem.gain.value = 0.7;
+    const lfo = ctx.createOscillator(); lfo.frequency.value = 28;
+    const lfoDepth = ctx.createGain(); lfoDepth.gain.value = 0.3;
+    motorGain = ctx.createGain(); motorGain.gain.value = 0;
+    osc1.connect(filter); osc2.connect(o2); o2.connect(filter);
+    lfo.connect(lfoDepth); lfoDepth.connect(trem.gain);
+    filter.connect(trem); trem.connect(motorGain); motorGain.connect(master);
+    osc1.start(); osc2.start(); lfo.start();
+    noiseBuf = ctx.createBuffer(1, ctx.sampleRate * 0.5, ctx.sampleRate);
+    const d = noiseBuf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  }
+  const ready = () => ctx && ctx.state === 'running';
+  function tone(type, f0, f1, start, dur, vol) {
+    const t = ctx.currentTime + start, o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = type; o.frequency.setValueAtTime(f0, t);
+    if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(master); o.start(t); o.stop(t + dur + 0.05);
+    return o;
+  }
+  function noise(start, dur, vol, freq) {
+    const t = ctx.currentTime + start, s = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+    s.buffer = noiseBuf; f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = 1.2;
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    s.connect(f); f.connect(g); g.connect(master); s.start(t); s.stop(t + dur + 0.02);
+  }
+  // claw servo: a buzzy whir that sweeps in pitch as the prongs swing, with a gear-tooth flutter
+  function servo(dur, closing) {
+    const t = ctx.currentTime, o = ctx.createOscillator(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+    const flutter = ctx.createOscillator(), depth = ctx.createGain();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(closing ? 260 : 420, t);
+    o.frequency.linearRampToValueAtTime(closing ? 470 : 300, t + dur);
+    f.type = 'bandpass'; f.frequency.value = 900; f.Q.value = 2;
+    flutter.frequency.value = 45; depth.gain.value = 0.05;
+    flutter.connect(depth); depth.connect(g.gain);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.11, t + 0.04);
+    g.gain.setValueAtTime(0.11, t + dur - 0.08);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(f); f.connect(g); g.connect(master);
+    o.start(t); flutter.start(t); o.stop(t + dur + 0.02); flutter.stop(t + dur + 0.02);
+  }
+  return {
+    unlock,
+    get muted() { return muted; },
+    toggle() {
+      muted = !muted;
+      try { localStorage.setItem('claw-crane-muted', muted ? '1' : '0'); } catch {}
+      if (ctx) master.gain.setTargetAtTime(muted ? 0 : VOL, ctx.currentTime, 0.02);
+      return muted;
+    },
+    motor(level, freq) {
+      if (!ready()) return;
+      const t = ctx.currentTime;
+      motorGain.gain.setTargetAtTime(level * 0.16, t, 0.05);
+      osc1.frequency.setTargetAtTime(freq, t, 0.08);
+      osc2.frequency.setTargetAtTime(freq * 1.51, t, 0.08);
+      filter.frequency.setTargetAtTime(350 + freq * 4, t, 0.1);
+    },
+    coin() { if (!ready()) return; tone('square', 988, 988, 0, 0.08, 0.1); tone('square', 1319, 1319, 0.08, 0.4, 0.1); },
+    button() { if (!ready()) return; tone('triangle', 260, 120, 0, 0.07, 0.3); noise(0, 0.03, 0.25, 2500); },
+    clunk(delay = 0) {
+      if (!ready()) return;
+      tone('sine', 150, 55, delay, 0.2, 0.4); noise(delay, 0.07, 0.3, 900); tone('square', 600, 300, delay, 0.05, 0.05);
+    },
+    closeClaw() { if (!ready()) return; servo(0.75, true); this.clunk(0.72); },
+    openClaw() { if (!ready()) return; servo(0.45, false); this.clunk(0.42); },
+    win() {
+      if (!ready()) return;
+      [523, 659, 784, 1047].forEach((f, i) => tone('triangle', f, f, i * 0.1, 0.22, 0.18));
+      tone('triangle', 1319, 1319, 0.4, 0.55, 0.16);
+      tone('triangle', 1568, 1568, 0.52, 0.45, 0.1);
+      [2093, 2637, 3136].forEach((f, i) => tone('sine', f, f, 0.62 + i * 0.07, 0.3, 0.05)); // sparkle
+    },
+    // "nope" buzzer: two low, rough square-wave blips, rate-limited so a held key doesn't machine-gun it
+    denied() {
+      if (!ready()) return;
+      const t = ctx.currentTime;
+      if (t - (this.lastDenied ?? -1) < 0.45) return;
+      this.lastDenied = t;
+      tone('square', 140, 120, 0, 0.12, 0.13); tone('square', 104, 92, 0.15, 0.2, 0.13);
+      tone('sawtooth', 70, 60, 0, 0.35, 0.06);
+    },
+    ohNo() {
+      if (!ready()) return;
+      tone('sawtooth', 392, 370, 0, 0.32, 0.08);
+      tone('sawtooth', 349, 330, 0.36, 0.32, 0.08);
+      tone('sawtooth', 330, 235, 0.72, 0.75, 0.08);
+    },
+  };
+})();
+addEventListener('pointerdown', Sound.unlock, { capture: true });
+addEventListener('keydown', Sound.unlock, { capture: true });
+
+// ---------- game state ----------
+const S = { IDLE: 'idle', DROP: 'drop', CLOSE: 'close', LIFT: 'lift', CARRY: 'carry', RELEASE: 'release' };
+let state = S.IDLE, timer = 0, credits = 5, wonCount = 0, wonThisRound = false, againstGlass = false;
+const input = { up: false, down: false, left: false, right: false };
+
+function setStatus(html) { $('status').innerHTML = html; }
+function updateHud() {
+  $('credits').textContent = credits;
+  $('won').textContent = wonCount;
+  $('drop').setAttribute('aria-disabled', String(state !== S.IDLE || credits <= 0)); // stays clickable so a no-credit press can buzz
+  if (state === S.IDLE && credits <= 0) setStatus('Out of credits. Press <strong>Insert coin</strong> to keep playing.');
+}
+let toastTimer;
+function toast(title, sub) {
+  const t = $('toast');
+  t.innerHTML = `${title}<small>${sub}</small>`;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2600);
+}
+
+function drop() {
+  if (state === S.IDLE && credits <= 0) Sound.denied();
+  if (state !== S.IDLE || credits <= 0) return;
+  credits--; wonThisRound = false;
+  carried.clear(); droppedThisRound = false;
+  Sound.button();
+  state = S.DROP; timer = 0;
+  setClaw(OPEN, 0.5);
+  pressedAt = performance.now() / 1000;
+  $('drop').classList.add('pressed');
+  setTimeout(() => $('drop').classList.remove('pressed'), 160);
+  setStatus('Dropping…');
+  updateHud();
+}
+
+// Steering is fixed to the machine, like a real cabinet: up = towards the back glass,
+// right = towards the right side, wherever the camera is orbited.
+function steer() {
+  const v = new THREE.Vector3((input.right ? 1 : 0) - (input.left ? 1 : 0), 0, (input.down ? 1 : 0) - (input.up ? 1 : 0));
+  if (v.lengthSq() > 1) v.normalize();
+  return v;
+}
+
+function hubTouching() {
+  let hit = false;
+  world.contactPairsWith(hubCollider, (other) => {
+    world.contactPair(hubCollider, other, (m) => { if (m.numContacts() > 0) hit = true; });
+  });
+  return hit;
+}
+
+function approach(cur, target, maxStep) {
+  const d = target - cur;
+  return Math.abs(d) <= maxStep ? target : cur + Math.sign(d) * maxStep;
+}
+
+function logic(dt, move) {
+  switch (state) {
+    case S.IDLE:
+      if (credits <= 0) { if (move.lengthSq() > 0) Sound.denied(); break; } // the gantry is powered down until a coin goes in
+      {
+        const nx = hub.x + move.x * MOVE_SPEED * dt, nz = hub.z + move.z * MOVE_SPEED * dt;
+        const pushing = nx > LIMIT || nx < -LIMIT || nz > LIMIT || nz < -LIMIT_BACK;
+        if (pushing && !againstGlass) Sound.denied(); // bump: buzz once each time the claw reaches the glass
+        againstGlass = pushing;
+        hub.x = THREE.MathUtils.clamp(nx, -LIMIT, LIMIT);
+        hub.z = THREE.MathUtils.clamp(nz, -LIMIT_BACK, LIMIT);
+      }
+      break;
+    case S.DROP:
+      hub.y -= DROP_SPEED * dt; timer += dt;
+      if (hub.y <= MIN_HUB_Y || (timer > 0.3 && hubTouching())) {
+        hub.y = Math.max(hub.y, MIN_HUB_Y);
+        state = S.CLOSE; timer = 0;
+        setClaw(CLOSED, gripStiffness());
+        Sound.closeClaw();
+        setStatus('Grabbing…');
+      }
+      break;
+    case S.CLOSE:
+      timer += dt;
+      if (timer > 0.9) { state = S.LIFT; setStatus('Lifting…'); }
+      break;
+    case S.LIFT:
+      hub.y = Math.min(TOP_Y, hub.y + LIFT_SPEED * dt);
+      if (hub.y >= TOP_Y) { state = S.CARRY; setStatus('Heading for the chute…'); }
+      break;
+    case S.CARRY:
+      hub.x = approach(hub.x, HOME.x, MOVE_SPEED * dt);
+      hub.z = approach(hub.z, HOME.z, MOVE_SPEED * dt);
+      if (hub.x === HOME.x && hub.z === HOME.z) { state = S.RELEASE; timer = 0; setClaw(OPEN, 0.5); Sound.openClaw(); setStatus('Releasing…'); }
+      break;
+    case S.RELEASE:
+      timer += dt;
+      if (timer > 1.6) {
+        state = S.IDLE;
+        setStatus(wonThisRound ? 'Nice catch! Steer to your next target.' : droppedThisRound ? 'It slipped out. Line up and try again.' : 'So close. Line up and try again.');
+        updateHud();
+      }
+      break;
+  }
+}
+
+// ---------- trophy shelf on top of the canopy ----------
+// Each kind has a persona: balls bounce, beans wiggle, cubes turn and hop, and every
+// character toy moves the way its animal would.
+const trophies = [];
+const PERSONA = { ball: 'bounces', bean: 'wiggles', cube: 'hops',
+  ...Object.fromEntries(Object.entries(CHARACTERS).map(([k, c]) => [k, c.persona])) };
+const SHELF_Y = 1.75, TROPHY_SCALE = 0.85;
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
+const DOOR = new THREE.Vector3(0.24, 0.2, 0.3), LIP = new THREE.Vector3(0.24, 0.2, 0.46);
+const easeInOut = (t) => (t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2);
+const tmpA = new THREE.Vector3(), tmpB = new THREE.Vector3();
+function shelfSlot(i) {
+  const row = Math.floor(i / 8) % 4, col = i % 8;
+  return new THREE.Vector3(-0.315 + col * 0.09, SHELF_Y, 0.255 - row * 0.17);
+}
+function bezier(p0, p1, p2, t, out) {
+  const u = 1 - t;
+  return out.set(
+    u * u * p0.x + 2 * u * t * p1.x + t * t * p2.x,
+    u * u * p0.y + 2 * u * t * p1.y + t * t * p2.y,
+    u * u * p0.z + 2 * u * t * p1.z + t * t * p2.z);
+}
+function characterPersona(kind, m, p, base, tau) {
+  const sin = Math.sin;
+  switch (kind) {
+    case 'alligator': {                                // jaw creeps open, then snaps shut
+      const c = (tau * 0.6) % 1;
+      const open = c < 0.75 ? c / 0.75 : Math.max(0, 1 - (c - 0.75) / 0.05);
+      p.jaw.rotation.x = open * 0.5;
+      p.tail.rotation.y = sin(tau * 1.6) * 0.35;
+      m.rotation.y = 0.75 + sin(tau * 0.5) * 0.2;      // three-quarter turn so its long snout shows
+      break;
+    }
+    case 'mantis':                                     // arms bob in prayer, head tilts curiously
+      for (const a of p.arms) a.rotation.x = sin(tau * 1.6) * 0.25;
+      p.head.rotation.z = sin(tau * 0.8) * 0.3;
+      m.rotation.z = sin(tau * 0.8 + 1) * 0.05;
+      break;
+    case 'kitten': {                                   // tail swish, head tilt, a crouch-and-pounce every few seconds
+      p.tail.rotation.y = sin(tau * 2.2) * 0.45;
+      p.head.rotation.z = sin(tau * 0.7) * 0.18;
+      const c = tau % 4;
+      if (c < 0.5) m.scale.y *= 1 - sin((c / 0.5) * Math.PI) * 0.12;
+      else if (c < 0.9) { m.position.y = base + sin(((c - 0.5) / 0.4) * Math.PI) * 0.04; m.rotation.x = -sin(((c - 0.5) / 0.4) * Math.PI) * 0.25; }
+      break;
+    }
+    case 'puppy': {                                    // happy tail wag, bouncy hops with flopping ears
+      p.tail.rotation.z = sin(tau * 16) * 0.55;
+      const hop = Math.abs(sin(tau * 2.6));
+      m.position.y = base + hop * 0.014;
+      for (const [i, e] of p.ears.entries()) e.rotation.z = (i ? 1 : -1) * (0.15 + (1 - hop) * 0.35);
+      p.head.rotation.x = sin(tau * 2.6) * 0.08;
+      break;
+    }
+    case 'clownfish':                                  // hovers and swims in place
+      m.position.y = base + 0.025 + sin(tau * 1.8) * 0.01;
+      m.rotation.y = sin(tau * 1.1) * 0.35;
+      m.rotation.z = sin(tau * 1.8) * 0.06;
+      p.tail.rotation.y = sin(tau * 11) * 0.5;
+      break;
+    case 'penguin':                                    // side-to-side waddle, flippers flapping
+      m.rotation.z = sin(tau * 3) * 0.15;
+      m.position.y = base + Math.abs(sin(tau * 3)) * 0.006;
+      for (const [i, f] of p.flippers.entries()) f.rotation.z = (i ? 1 : -1) * (0.15 + Math.abs(sin(tau * 3)) * 0.45);
+      break;
+    case 'snake': {                                    // head sways, tongue flicks
+      p.head.rotation.y = sin(tau * 1.2) * 0.4;
+      p.head.rotation.z = sin(tau * 2.4) * 0.08;
+      const c = (tau * 1.5) % 1;
+      p.tongue.scale.z = c < 0.25 ? 0.4 + sin((c / 0.25) * Math.PI) * 0.9 : 0.4;
+      m.rotation.y = sin(tau * 0.4) * 0.3;
+      break;
+    }
+    case 'sparrow': {                                  // hops and flutters, head bobbing
+      const c = tau % 2.2;
+      const air = c < 0.6 ? sin((c / 0.6) * Math.PI) : 0;
+      m.position.y = base + air * 0.045;
+      for (const [i, w] of p.wings.entries()) w.rotation.z = (i ? 1 : -1) * (air > 0 ? 0.2 + Math.abs(sin(tau * 22)) * 0.9 : 0);
+      p.head.rotation.x = sin(tau * 3.5) * 0.12;
+      p.head.rotation.z = sin(tau * 0.9) * 0.15;
+      break;
+    }
+    case 'duck':                                       // bobs and rocks as if afloat, nodding now and then
+      m.position.y = base + sin(tau * 1.6) * 0.006;
+      m.rotation.x = sin(tau * 1.6 + 0.8) * 0.12;
+      m.rotation.z = sin(tau * 1.1) * 0.08;
+      p.head.rotation.x = Math.max(0, sin(tau * 0.9)) ** 4 * 0.35;
+      p.tail.rotation.y = sin(tau * 5) * 0.3;
+      break;
+    case 'mouse': {                                    // sniffs and twitches its ears, then a quick scurry
+      const c = tau % 3;
+      p.nose.scale.setScalar(1 + Math.max(0, sin(tau * 14)) * 0.35);
+      p.head.rotation.x = sin(tau * 7) * 0.05;
+      for (const [i, e] of p.ears.entries()) e.rotation.z = (i ? 1 : -1) * (c > 2.5 ? sin(((c - 2.5) / 0.5) * Math.PI * 2) * 0.3 : 0);
+      if (c < 0.8) { m.rotation.y = sin((c / 0.8) * Math.PI * 2) * 0.6; m.position.y = base + Math.abs(sin(tau * 30)) * 0.004; }
+      p.tail.rotation.y = sin(tau * 2) * 0.4;
+      break;
+    }
+    case 'frog': {                                     // throat puffs as it croaks, then a big leap with legs kicked out
+      const c = tau % 3.5;
+      p.throat.scale.setScalar(c < 2 ? 1 + Math.max(0, sin(c * Math.PI * 2.5)) * 0.7 : 1);
+      if (c > 2.4 && c < 3.1) {
+        const k = sin(((c - 2.4) / 0.7) * Math.PI);
+        m.position.y = base + k * 0.06;
+        m.rotation.x = -k * 0.35;
+        for (const l of p.legs) l.rotation.x = k * 0.9;
+      } else for (const l of p.legs) l.rotation.x = 0;
+      break;
+    }
+  }
+}
+function persona(tr, m, base, time) {
+  const tau = time + tr.seed, S = TROPHY_SCALE;
+  m.rotation.set(0, 0, 0);
+  m.scale.setScalar(S);
+  m.position.set(tr.slot.x, base, tr.slot.z);
+  if (reduceMotion.matches) return;
+  if (tr.kind === 'ball') {
+    const s = Math.abs(Math.sin(tau * 3.2));
+    const squash = Math.max(0, 0.25 - s) * 0.5;      // flatten for a moment at each landing
+    m.scale.set(S * (1 + squash), S * (1 - squash), S * (1 + squash));
+    m.position.y = base + s * 0.035 - tr.half * S * squash;
+  } else if (tr.kind === 'bean') {
+    m.rotation.z = Math.sin(tau * 2.2) * 0.22;
+    m.rotation.y = Math.sin(tau * 1.1) * 0.15;
+    m.position.y = base + Math.abs(Math.sin(tau * 2.2)) * 0.006;
+  } else if (CHARACTERS[tr.kind]) {
+    characterPersona(tr.kind, m, m.userData.parts, base, tau);
+  } else {
+    m.rotation.y = Math.sin(tau * 0.7) * 0.7;
+    const h = tau % 3.2;
+    m.position.y = base + (h < 0.45 ? Math.sin((h / 0.45) * Math.PI) * 0.03 : 0);
+  }
+}
+function updateTrophies(time) {
+  for (const tr of trophies) {
+    const m = tr.mesh, S = TROPHY_SCALE, t = time - tr.t0;
+    const base = tr.slot.y + tr.half * S;
+    const floorSpot = tmpA.set(0.24, tr.half * S, 0.64);
+    if (reduceMotion.matches || t > 2.9) { persona(tr, m, base, time); continue; }
+    m.rotation.set(0, 0, 0);
+    if (t < 0.5) {                                     // pushes the flap open
+      const k = easeInOut(t / 0.5);
+      m.position.lerpVectors(DOOR, LIP, k);
+      m.scale.setScalar(S * (0.4 + 0.6 * k));
+    } else if (t < 0.95) {                             // tumbles out onto the floor
+      const k = (t - 0.5) / 0.45;
+      m.position.lerpVectors(LIP, floorSpot, k);
+      m.position.y += Math.sin(k * Math.PI) * 0.06;
+      m.rotation.x = k * Math.PI * 0.5;
+      m.scale.setScalar(S);
+    } else if (t < 1.3) {                              // lands with a squish
+      const k = (t - 0.95) / 0.35, sq = Math.sin(k * Math.PI) * 0.18;
+      m.position.copy(floorSpot); m.position.y -= tr.half * S * sq;
+      m.scale.set(S * (1 + sq), S * (1 - sq), S * (1 + sq));
+    } else {                                           // floats up to its place on the shelf
+      const k = easeInOut((t - 1.3) / 1.6);
+      const ctrl = tmpB.set((floorSpot.x + tr.slot.x) / 2, 2.25, 0.55);
+      bezier(floorSpot, ctrl, new THREE.Vector3(tr.slot.x, base, tr.slot.z), k, m.position);
+      m.rotation.y = k * Math.PI * 2;
+      m.scale.setScalar(S);
+    }
+  }
+}
+
+// A prize counts as dropped when the claw lifted it and it then falls well below the claw
+// anywhere except into the chute.
+const carried = new Set();
+let droppedThisRound = false, lastWinSound = -10;
+function checkDrops() {
+  if (state === S.LIFT || state === S.CARRY) {
+    for (const p of prizes) if (p.body.translation().y > FLOOR_Y + 0.15) carried.add(p);
+  }
+  for (const p of carried) {
+    if (!prizes.includes(p)) { carried.delete(p); continue; }
+    const t = p.body.translation();
+    const nearChute = t.x > CHUTE.x0 - 0.05 && t.z > CHUTE.z0 - 0.05;
+    if (!nearChute && hub.y > FLOOR_Y + 0.3 && t.y < hub.y - 0.28) {
+      carried.delete(p);
+      if (!droppedThisRound) {
+        droppedThisRound = true;
+        Sound.ohNo();
+        toast('Oh no!', `The ${p.name} slipped out of the claw.`);
+      }
+    }
+  }
+}
+
+function checkWins() {
+  for (const p of [...prizes]) {
+    const t = p.body.translation();
+    if (t.y < FLOOR_Y - 0.12 && t.x > CHUTE.x0 - 0.02 && t.z > CHUTE.z0 - 0.02) {
+      world.removeRigidBody(p.body);
+      prizes = prizes.filter((o) => o !== p);
+      trophies.push({ mesh: p.mesh, kind: p.kind, half: p.half, t0: performance.now() / 1000, slot: shelfSlot(trophies.length), seed: Math.random() * 10 });
+      wonCount++; wonThisRound = true;
+      const sw = document.createElement('i'); sw.style.background = p.color; sw.title = p.name;
+      $('haul').appendChild(sw);
+      toast('You won!', `The ${p.name} pops out of the flap and ${PERSONA[p.kind]} up to the top shelf.`);
+      const nowS = performance.now() / 1000;
+      if (nowS - lastWinSound > 1.5) { Sound.win(); lastWinSound = nowS; }
+      flapSwing = 1;
+      updateHud();
+    } else if (t.y < -1 || Math.abs(t.x) > 2 || Math.abs(t.z) > 2) {
+      p.body.setTranslation({ x: -0.1, y: FLOOR_Y + 0.2, z: -0.1 }, true);
+      p.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+    }
+  }
+}
+
+// ---------- input ----------
+const keyMap = { ArrowUp: 'up', KeyW: 'up', ArrowDown: 'down', KeyS: 'down', ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right' };
+addEventListener('keydown', (e) => {
+  if (e.target.closest?.('input')) return;
+  if (keyMap[e.code]) { input[keyMap[e.code]] = true; e.preventDefault(); }
+  const plain = !e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey;
+  const viewKey = { KeyF: 'front', KeyL: 'left', KeyR: 'right' }[e.code];
+  if (viewKey && plain) { setView(viewKey); e.preventDefault(); }
+  if (e.code === 'KeyC' && plain) { toggleClawCam(); e.preventDefault(); }
+  if (e.code === 'KeyX' && !e.ctrlKey && !e.metaKey && !e.altKey) { laserOn = true; e.preventDefault(); }
+  if (e.code === 'Space' || e.code === 'Enter') { if (e.target.tagName !== 'BUTTON' || e.target.id === 'drop') { drop(); e.preventDefault(); } }
+});
+addEventListener('keyup', (e) => { if (keyMap[e.code]) input[keyMap[e.code]] = false; if (e.code === 'KeyX') laserOn = false; });
+addEventListener('blur', () => { for (const k in input) input[k] = false; laserOn = false; });
+// buttons and the grip slider hand focus back to the page, so Space and the steering keys keep driving the claw
+document.addEventListener('click', (e) => { if (e.target.closest?.('button')) e.target.closest('button').blur(); });
+$('grip').addEventListener('change', () => $('grip').blur());
+$('grip').addEventListener('pointerup', () => $('grip').blur());
+for (const b of $('pad').querySelectorAll('button')) {
+  const dir = b.dataset.dir;
+  const on = (e) => { e.preventDefault(); input[dir] = true; b.classList.add('on'); b.setPointerCapture?.(e.pointerId); };
+  const off = () => { input[dir] = false; b.classList.remove('on'); };
+  b.addEventListener('pointerdown', on);
+  b.addEventListener('pointerup', off); b.addEventListener('pointercancel', off); b.addEventListener('lostpointercapture', off);
+}
+$('drop').addEventListener('click', drop);
+$('coin').addEventListener('click', () => {
+  credits += 3; updateHud(); Sound.coin();
+  if (state === S.IDLE) setStatus('Three credits added. Steer the claw and hit <strong>Drop</strong>.');
+});
+$('restock').addEventListener('click', () => { if (state === S.IDLE) { restock(); setStatus('Fresh prizes loaded.'); } });
+for (const b of document.querySelectorAll('[data-view]')) b.addEventListener('click', () => setView(b.dataset.view));
+function showSoundState() {
+  $('sound').textContent = Sound.muted ? 'Sound off' : 'Sound on';
+  $('sound').setAttribute('aria-pressed', String(!Sound.muted));
+}
+$('sound').addEventListener('click', () => { Sound.toggle(); showSoundState(); });
+showSoundState();
+const GRIP_NAMES = [[0.15, 'Butterfingers'], [0.45, 'Arcade'], [0.75, 'Firm'], [1.01, 'Iron grip']];
+function onGrip() {
+  gripLevel = $('grip').value / 100;
+  $('gripOut').textContent = GRIP_NAMES.find(([v]) => gripLevel < v)[1];
+  if (state === S.CLOSE || state === S.LIFT || state === S.CARRY) setClaw(CLOSED, gripStiffness());
+}
+$('grip').addEventListener('input', onGrip);
+onGrip();
+
+// ---------- loop ----------
+function resize() {
+  const w = stage.clientWidth, h = stage.clientHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / Math.max(h, 1);
+  camera.updateProjectionMatrix();
+  if (viewName && !camTween && !clawCam) frameView();
+}
+new ResizeObserver(resize).observe(stage);
+resize();
+frameView();
+restock();
+updateHud();
+
+let flapSwing = 0;
+const prevHub = { ...hub };
+const clock = new THREE.Clock();
+let acc = 0;
+const yUp = new THREE.Vector3(0, 1, 0);
+function frame() {
+  const frameDt = Math.min(clock.getDelta(), 0.05);
+  acc = Math.min(acc + frameDt, 0.1);
+  const now = performance.now() / 1000;
+  const move = steer();
+  while (acc >= DT) {
+    logic(DT, move);
+    hubBody.setNextKinematicTranslation(hub);
+    world.step();
+    acc -= DT;
+  }
+  checkWins();
+  checkDrops();
+  updateTrophies(now);
+
+  // motor hum: a louder, higher winch while the cable lowers or lifts, a lower gantry drive while it travels
+  if (frameDt > 0) {
+    const vert = Math.abs(hub.y - prevHub.y) / frameDt, horiz = Math.hypot(hub.x - prevHub.x, hub.z - prevHub.z) / frameDt;
+    if (vert > 0.01) Sound.motor(1.5, hub.y < prevHub.y ? 175 : 205);
+    else if (horiz > 0.01) Sound.motor(0.75, 82);
+    else Sound.motor(0, 80);
+  }
+  prevHub.x = hub.x; prevHub.y = hub.y; prevHub.z = hub.z;
+
+  hubMesh.position.copy(hubBody.translation());
+  for (const p of prongs) { p.mesh.position.copy(p.body.translation()); p.mesh.quaternion.copy(p.body.rotation()); }
+  for (const p of prizes) { p.mesh.position.copy(p.body.translation()); p.mesh.quaternion.copy(p.body.rotation()); }
+  carriage.position.set(hub.x, 1.4475, hub.z);
+  bridge.position.z = hub.z;
+  const cTop = 1.425, cBot = hubMesh.position.y + 0.025;
+  cable.scale.y = Math.max(cTop - cBot, 0.001);
+  cable.position.set(hub.x, (cTop + cBot) / 2, hub.z);
+
+  laser.visible = laserOn;
+  if (laserOn) {
+    const start = { x: hubMesh.position.x, y: hubMesh.position.y - 0.046, z: hubMesh.position.z };
+    const hit = world.castRay(new RAPIER.Ray(start, { x: 0, y: -1, z: 0 }), 2, true, undefined, LASER_GROUPS);
+    const len = hit ? hit.toi : start.y - FLOOR_Y;
+    laser.position.set(start.x, start.y, start.z);
+    laserCore.scale.y = laserGlow.scale.y = Math.max(len, 0.001);
+    laserDot.position.y = -len;
+    laserDot.scale.setScalar(0.85 + Math.sin(now * 30) * 0.15);
+  }
+
+  // joystick: a damped spring toward the steering direction, so it leans in and wobbles back to centre
+  const moving = state === S.IDLE && credits > 0 ? move : { x: 0, z: 0 };
+  const TILT = 0.45, K = 260, C = reduceMotion.matches ? 40 : 11;
+  stickSpring.vx += ((moving.z * TILT - stickSpring.ax) * K - stickSpring.vx * C) * frameDt;
+  stickSpring.vz += ((-moving.x * TILT - stickSpring.az) * K - stickSpring.vz * C) * frameDt;
+  stickSpring.ax += stickSpring.vx * frameDt;
+  stickSpring.az += stickSpring.vz * frameDt;
+  stick.rotation.x = stickSpring.ax;
+  stick.rotation.z = stickSpring.az;
+
+  // drop button: quick press and slower release, lit while the claw works, a soft pulse when ready
+  const pt = now - pressedAt;
+  const depress = pt < 0.08 ? pt / 0.08 : Math.max(0, 1 - (pt - 0.08) / 0.22);
+  dropCap.position.y = DROP_CAP_Y - DROP_TRAVEL * depress;
+  const busy = state !== S.IDLE;
+  const pulse = reduceMotion.matches ? 0 : Math.sin(now * (busy ? 8 : 2.5));
+  dropMat.emissiveIntensity = busy ? 0.7 + 0.25 * pulse : credits > 0 ? 0.2 + 0.15 * pulse : 0;
+  flapSwing = Math.max(0, flapSwing - 0.02);
+  flap.rotation.x = -Math.sin(flapSwing * Math.PI) * 0.6;
+
+  updateCamera(now);
+  renderer.render(scene, camera);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
